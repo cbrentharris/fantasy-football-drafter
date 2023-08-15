@@ -1,96 +1,120 @@
-from enum import Enum, auto
+class PlayerStats:
+    """
+    This class represents the statistics a player had (or is predicted to have) in a given game. This is to
+    allow for dynamic allocation of additional roster adds wherein a player might not have the best predicted
+    score, but is a good roster fit due to byes etc.
+    """
+
+    def __init__(self, passing_yards: str, passing_td: str, interceptions: str, rushing_yards: str, rushing_td: str,
+                 fumbles: str, receiving_yards: str, receiving_td: str):
+        self.passing_yards = self.parse(passing_yards)
+        self.passing_td = self.parse(passing_td)
+        self.interceptions = self.parse(interceptions)
+        self.rushing_yards = self.parse(rushing_yards)
+        self.rushing_td = self.parse(rushing_td)
+        self.receiving_yards = self.parse(receiving_yards)
+        self.receiving_td = self.parse(receiving_td)
+        self.fumbles = self.parse(fumbles)
+
+    def score(self) -> float:
+        return self.passing_td * 3 + (
+                self.passing_yards / 50) - self.interceptions + self.rushing_td * 3 + (
+                       self.rushing_yards / 30) - self.fumbles + self.receiving_td * 3 + (self.receiving_yards / 30)
+
+    @staticmethod
+    def parse(value: str) -> float:
+        try:
+            return float(value)
+        except ValueError:
+            return 0.0
 
 
-class Team(Enum):
-    CARDINALS = auto()
-    FALCONS = auto()
-    RAVENS = auto()
-    BILLS = auto()
-    PANTHERS = auto()
-    BEARS = auto()
-    BENGALS = auto()
-    BROWNS = auto()
-    COWBOYS = auto()
-    BRONCOS = auto()
-    LIONS = auto()
-    PACKERS = auto()
-    TEXANS = auto()
-    COLTS = auto()
-    JAGUARS = auto()
-    CHIEFS = auto()
-    RAIDERS = auto()
-    CHARGERS = auto()
-    RAMS = auto()
-    DOLPHINS = auto()
-    VIKINGS = auto()
-    PATRIOTS = auto()
-    SAINTS = auto()
-    GIANTS = auto()
-    JETS = auto()
-    EAGLES = auto()
-    STEELERS = auto()
-    NINERS = auto()
-    SEAHAWKS = auto()
-    BUCCANEERS = auto()
-    TITANTS = auto()
-    COMMANDERS = auto()
+class Player:
+    def __init__(self, stats: dict[int, PlayerStats], name: str, position: str):
+        self.stats = stats
+        self.name = name
+        self.position = position
+
+    def overall_score(self) -> float:
+        return sum(map(lambda stat: stat.score(), self.stats.values()))
+
+    def net_additional_score(self, roster) -> float:
+        if not roster.has_spot(self):
+            return 0.0
+
+        if roster.has_starting_spot(self):
+            return self.overall_score()
+
+        matching_players = roster.matching_players(self)
+        current_weekly_maxes = map(lambda player: {w: s.score() for w, s in player.stats.items()},
+                                   matching_players)
+
+        def merge_dicts(dicts):
+            merged_dict = {}
+            for d in dicts:
+                for key, value in d.items():
+                    merged_dict[key] = merged_dict.get(key, []) + [value]
+            return merged_dict
+
+        current_weekly_merged = merge_dicts(list(current_weekly_maxes))
+
+        total_delta = 0.0
+        for week, stat in self.stats.items():
+            weekly_maxes = sorted(current_weekly_merged[week], reverse=True)[:roster.starting_positions(self)]
+            weekly_max = sum(weekly_maxes)
+            weekly_score = stat.score()
+            with_weekly = sum(sorted(weekly_maxes + [weekly_score], reverse=True)[:roster.starting_positions(self)])
+            delta = with_weekly - weekly_max
+            if delta > 0.0:
+                total_delta += delta
+        return total_delta
 
 
-class RunningBack:
-    class RunningBackPerformance:
-        def __init__(self, yards: int, touchdowns: int, fumbles: int, team: Team):
-            self.yards = yards
-            self.touchdowns = touchdowns
-            self.fumbles = fumbles
-            self.team = team
+class Position:
+    RECEIVERS = ["WR", "TE"]
 
-        def score(self):
-            return (self.yards / 30) + self.touchdowns * 3 - self.fumbles
+    def __init__(self, position: str, players: list[Player], max_players: int, starting_players: int):
+        self.posision = position
+        self.players = players
+        self.max_players = max_players
+        self.starting_players = starting_players
 
-    def __init__(self, performances: list[RunningBackPerformance], bye: int):
-        self.performances = performances
-        self.bye = bye
+    def has_spot(self) -> bool:
+        return len(self.players) < self.max_players
 
-    def projected_score(self):
-        return sum(map(lambda p: p.score(), self.performances))
+    def has_starting_spot(self) -> bool:
+        return len(self.players) < self.starting_players
 
-
-class QuarterBack:
-    class QuarterbackPerformance:
-        def __init__(self, interceptions: int, passing_yards: int, passing_touchdowns: int, rushing_touchdowns: int,
-                     rushing_yards: int, fumbles: int, ):
-            self.interceptions = interceptions
-            self.passing_yards = passing_yards
-            self.passing_touchdowns = passing_touchdowns
-            self.rushing_touchdowns = rushing_touchdowns
-            self.rushing_yards = rushing_yards
-            self.fumbles = fumbles
-
-        def score(self):
-            return self.passing_touchdowns * 3 + (
-                    self.passing_yards / 50) - self.interceptions + self.rushing_touchdowns * 3 + (
-                           self.rushing_yards / 30) - self.fumbles
-
-    def __init__(self, performances: list[QuarterbackPerformance], bye: int):
-        self.performances = performances
-        self.bye = bye
-
-    def projected_score(self):
-        return sum(map(lambda p: p.score(), self.performances))
-
-    def score_against(self, team):
-        pass
+    def matching_players(self, player: Player) -> list[Player]:
+        if player.position in self.RECEIVERS and self.posision in self.RECEIVERS:
+            return self.players
+        if player.position == self.posision:
+            return self.players
+        return []
 
 
-class Receiver:
-    def __init__(self, receiving_yards: int, receiving_touchdowns: int, fumbles: int, bye: int):
-        self.receiving_yards = receiving_yards
-        self.receiving_touchdowns = receiving_touchdowns
-        self.fumbles = fumbles
-        self.bye = bye
+class Roster:
+    def __init__(self):
+        self.positions = {}
+        receivers = []
+        self.positions["QB"] = Position("QB", [], 3, 1)
+        self.positions["RB"] = Position("RB", [], 10, 2)
+        self.positions["WR"] = Position("WR", receivers, 11, 3)
+        self.positions["TE"] = Position("TE", receivers, 11, 3)
 
-    def projected_score(self):
-        return (self.receiving_yards / 30) + self.receiving_touchdowns * 3 - self.fumbles
+    def draft(self, player: Player) -> None:
+        self.positions[player.position].players.append(player)
 
-    def is_good_complement(self, other):
-        pass
+    def has_spot(self, player: Player) -> bool:
+        position = self.positions[player.position]
+        return position.has_spot()
+
+    def has_starting_spot(self, player: Player) -> bool:
+        position = self.positions[player.position]
+        return position.has_starting_spot()
+
+    def matching_players(self, player: Player) -> list[Player]:
+        return [p for position in self.positions.values() for p in position.matching_players(player)]
+
+    def starting_positions(self, player: Player) -> int:
+        return self.positions[player.position].starting_players
