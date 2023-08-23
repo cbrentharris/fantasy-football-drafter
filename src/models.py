@@ -232,14 +232,15 @@ class Draft:
         for index, player in enumerate(self.roster.all_players):
             roster_table.add_row([player.name, index + 1])
 
-        top_five = self.available_players[:5]
-        top_five_qb = list(filter(lambda p: p.position == "QB", self.available_players))[:5]
-        top_five_rb = list(filter(lambda p: p.position == "RB", self.available_players))[:5]
-        top_five_receiver = list(filter(lambda p: p.position == "WR" or p.position == "TE", self.available_players))[:5]
-        self.add_players(available_table, top_five_qb)
-        self.add_players(available_table, top_five_rb)
-        self.add_players(available_table, top_five_receiver)
-        self.add_players(available_table, top_five)
+        top_count = 7
+        top = self.available_players[:top_count]
+        top_qb = list(filter(lambda p: p.position == "QB", self.available_players))[:top_count]
+        top_rb = list(filter(lambda p: p.position == "RB", self.available_players))[:top_count]
+        top_receiver = list(filter(lambda p: p.position == "WR" or p.position == "TE", self.available_players))[:top_count]
+        self.add_players(available_table, top_qb)
+        self.add_players(available_table, top_rb)
+        self.add_players(available_table, top_receiver)
+        self.add_players(available_table, top)
         print("Roster:")
         print(roster_table)
         print("")
