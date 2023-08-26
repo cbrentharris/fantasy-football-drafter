@@ -2,18 +2,11 @@ from models import Draft
 
 
 def start_draft():
-    draft = Draft()
+    draft = Draft(12, my_position=4)
     while True:
         draft.print_summary()
-        user_input = input("Enter action(draft or lost) and player name:")
-        action, first_name, last_name = user_input.split(" ")
-        player_name = first_name + " " + last_name
-        if action == "draft":
-            draft.select(player_name)
-        elif action == "lost":
-            draft.lose(player_name)
-        else:
-            print("Could not understand action " + action + " please try again")
+        player_name = input("Enter player name:")
+        draft.select(player_name)
         draft.save()
 
 

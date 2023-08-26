@@ -1,6 +1,8 @@
 import json
 import pickle
+import copy
 
+from prettytable.colortable import ColorTable, Themes
 from prettytable import PrettyTable
 
 from constants import Constants
@@ -171,10 +173,16 @@ class Roster:
 
 class Draft:
 
-    def __init__(self):
-        self.roster = Roster.load()
+    def __init__(self, total_drafters: int, my_position: int):
+        self.current_position = 0
+        self.rosters = self.load_rosters(total_drafters)
         self.available_players = sorted(self.load_players(), key=lambda player: (
-            self.roster.net_additional_score(player), player.overall_score()), reverse=True)
+            self.current_roster().net_additional_score(player), player.overall_score()), reverse=True)
+        self.total_drafters = total_drafters
+        self.my_position = my_position
+
+    def current_roster(self):
+        return self.rosters[self.current_position]
 
     @staticmethod
     def load_players() -> list[Player]:
@@ -186,11 +194,21 @@ class Draft:
             print(e)
             return Player.load().values()
 
+    @staticmethod
+    def load_rosters(num_drafters: int):
+        try:
+            with open(Constants.ROSTERS_PICKLE_FILENAME, 'rb') as rosters_pickle_file:
+                return pickle.load(rosters_pickle_file)
+
+        except Exception as e:
+            print(e)
+            return [Roster() for _ in range(num_drafters)]
+
     def save(self) -> None:
-        with open(Constants.ROSTER_PICKLE_FILENAME, 'wb') as roster_pickle_file:
-            pickle.dump(self.roster, roster_pickle_file)
         with open(Constants.PLAYER_PICKLE_FILENAME, 'wb') as player_pickle_file:
             pickle.dump([p for p in self.available_players], player_pickle_file)
+        with open(Constants.ROSTERS_PICKLE_FILENAME, 'wb') as rosters_pickle_file:
+            pickle.dump([r for r in self.rosters], rosters_pickle_file)
 
     def find(self, player_name: str):
         player_found = None
@@ -205,51 +223,84 @@ class Draft:
             print("Could not find player " + player_name + " please try again.")
             return
 
-        self.roster.add(player_to_add)
+        self.current_roster().add(player_to_add)
+        self.rotate_rosters()
         self.remove_player_from_available_list(player_to_add)
 
-    def lose(self, player_name):
-        player_lost = self.find(player_name)
-        if player_lost is None:
-            print("Could not find player " + player_name + " please try again.")
-            return
-        self.remove_player_from_available_list(player_lost)
+    def select_next_best_available(self):
+        player = self.next_best_available()
+        self.current_roster().add(player)
+        self.rotate_rosters()
+        self.remove_player_from_available_list(player)
+
+    def next_best_available(self):
+        return \
+            sorted(self.available_players, key=lambda p: self.current_roster().net_additional_score(p), reverse=True)[0]
 
     def remove_player_from_available_list(self, player):
         without_player = [p for p in self.available_players if p.name != player.name]
         self.available_players = sorted(without_player,
-                                        key=lambda p: (self.roster.net_additional_score(p), p.overall_score()),
+                                        key=lambda p: (
+                                            self.current_roster().net_additional_score(p), p.overall_score()),
                                         reverse=True)
 
     def print_summary(self):
         available_table = PrettyTable()
-        available_table.field_names = ["Name", "Position", "Net Additional Score", "Overall Score"]
+        roster_table = PrettyTable()
+        if self.current_position == self.my_position:
+            roster_table = ColorTable(theme=Themes.OCEAN)
+            available_table = ColorTable(theme=Themes.OCEAN)
+
+        available_table.field_names = ["Name", "Position", "Net Additional Score", "Overall Score",
+                                       "Points Against Next Best"]
         available_table.float_format = ".2"
 
-        roster_table = PrettyTable()
         roster_table.field_names = ["Name", "Position Drafted"]
 
-        for index, player in enumerate(self.roster.all_players):
+        for index, player in enumerate(self.current_roster().all_players):
             roster_table.add_row([player.name, index + 1])
+
+        future_draft = self.simulate_to_next_round()
+        next_best = sorted(future_draft.available_players,
+                           key=lambda p: self.current_roster().net_additional_score(p), reverse=True)[0]
+        next_best_qb = sorted(filter(lambda p: p.position == "QB", future_draft.available_players),
+                              key=lambda p: self.current_roster().net_additional_score(p), reverse=True)[0]
+        next_best_rb = sorted(filter(lambda p: p.position == "RB", future_draft.available_players),
+                              key=lambda p: self.current_roster().net_additional_score(p), reverse=True)[0]
+        next_best_wr_or_te = sorted(
+            filter(lambda p: p.position == "TE" or p.position == "WR", future_draft.available_players),
+            key=lambda p: self.current_roster().net_additional_score(p), reverse=True)[0]
 
         top_count = 7
         top = self.available_players[:top_count]
         top_qb = list(filter(lambda p: p.position == "QB", self.available_players))[:top_count]
         top_rb = list(filter(lambda p: p.position == "RB", self.available_players))[:top_count]
-        top_receiver = list(filter(lambda p: p.position == "WR" or p.position == "TE", self.available_players))[:top_count]
-        self.add_players(available_table, top_qb)
-        self.add_players(available_table, top_rb)
-        self.add_players(available_table, top_receiver)
-        self.add_players(available_table, top)
+        top_receiver = list(filter(lambda p: p.position == "WR" or p.position == "TE", self.available_players))[
+                       :top_count]
+        self.add_players(available_table, top_qb, next_best_qb)
+        self.add_players(available_table, top_rb, next_best_rb)
+        self.add_players(available_table, top_receiver, next_best_wr_or_te)
+        self.add_players(available_table, top, next_best)
         print("Roster:")
         print(roster_table)
         print("")
         print("Available Players:")
         print(available_table)
 
-    def add_players(self, table: PrettyTable, players: list[Player]):
+    def add_players(self, table: PrettyTable, players: list[Player], next_best: Player):
         for player in players:
             last_player = player.name == players[-1].name
             table.add_row(
-                [player.name, player.position, self.roster.net_additional_score(player), player.overall_score()],
+                [player.name, player.position, self.current_roster().net_additional_score(player),
+                 player.overall_score(),
+                 player.overall_score() - next_best.overall_score()],
                 divider=last_player)
+
+    def simulate_to_next_round(self):
+        copy_draft = copy.deepcopy(self)
+        for _ in range(self.total_drafters):
+            copy_draft.select_next_best_available()
+        return copy_draft
+
+    def rotate_rosters(self):
+        self.current_position = (self.current_position + 1) % self.total_drafters

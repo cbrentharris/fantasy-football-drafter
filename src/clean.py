@@ -3,8 +3,14 @@ from constants import Constants
 
 
 def clean():
-    os.remove(Constants.PLAYER_PICKLE_FILENAME)
-    os.remove(Constants.ROSTER_PICKLE_FILENAME)
+    for f in [
+        Constants.ROSTERS_PICKLE_FILENAME,
+        Constants.PLAYER_PICKLE_FILENAME
+    ]:
+        try:
+            os.remove(f)
+        except Exception as e:
+            print(e)
 
 
 if __name__ == "__main__":
