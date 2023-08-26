@@ -45,10 +45,11 @@ class Player:
     drafted players that complement an existing draft very well.
     """
 
-    def __init__(self, stats: dict[int, PlayerStats], name: str, position: str):
+    def __init__(self, stats: dict[int, PlayerStats], name: str, position: str, team: str):
         self.stats = stats
         self.name = name
         self.position = position
+        self.team = team
 
     def overall_score(self) -> float:
         return sum(map(lambda stat: stat.score(), self.stats.values()))
@@ -61,7 +62,8 @@ class Player:
             for week, stats in player_stats.items():
                 for stat in stats:
                     if stat['player_name'] not in players:
-                        players[stat['player_name']] = Player({}, stat['player_name'], stat['player_position'])
+                        players[stat['player_name']] = Player({}, stat['player_name'], stat['player_position'],
+                                                              stat['player_team'])
                     players[stat['player_name']].stats[week] = PlayerStats(passing_yards=stat['passing_yards'],
                                                                            passing_td=stat['passing_tds'],
                                                                            interceptions=stat['interceptions'],
@@ -174,12 +176,12 @@ class Roster:
 class Draft:
 
     def __init__(self, total_drafters: int, my_position: int):
-        self.current_position = 0
-        self.rosters = self.load_rosters(total_drafters)
+        self.total_drafters = total_drafters
+        self.my_position = my_position
+        self.load_rosters()
         self.available_players = sorted(self.load_players(), key=lambda player: (
             self.current_roster().net_additional_score(player), player.overall_score()), reverse=True)
         self.total_drafters = total_drafters
-        self.my_position = my_position
 
     def current_roster(self):
         return self.rosters[self.current_position]
@@ -194,21 +196,24 @@ class Draft:
             print(e)
             return Player.load().values()
 
-    @staticmethod
-    def load_rosters(num_drafters: int):
+    def load_rosters(self):
         try:
             with open(Constants.ROSTERS_PICKLE_FILENAME, 'rb') as rosters_pickle_file:
-                return pickle.load(rosters_pickle_file)
+                rosters_and_current_position = pickle.load(rosters_pickle_file)
+                self.rosters = rosters_and_current_position["rosters"]
+                self.current_position = rosters_and_current_position["current_position"]
 
         except Exception as e:
             print(e)
-            return [Roster() for _ in range(num_drafters)]
+            self.rosters = [Roster() for _ in range(self.total_drafters)]
+            self.current_position = 0
 
     def save(self) -> None:
         with open(Constants.PLAYER_PICKLE_FILENAME, 'wb') as player_pickle_file:
             pickle.dump([p for p in self.available_players], player_pickle_file)
         with open(Constants.ROSTERS_PICKLE_FILENAME, 'wb') as rosters_pickle_file:
-            pickle.dump([r for r in self.rosters], rosters_pickle_file)
+            pickle.dump({"current_position": self.current_position, "rosters": [r for r in self.rosters]},
+                        rosters_pickle_file)
 
     def find(self, player_name: str):
         player_found = None
@@ -252,13 +257,13 @@ class Draft:
             available_table = ColorTable(theme=Themes.OCEAN)
 
         available_table.field_names = ["Name", "Position", "Net Additional Score", "Overall Score",
-                                       "Points Against Next Best"]
+                                       "Points Against Next Best", "Team"]
         available_table.float_format = ".2"
 
-        roster_table.field_names = ["Name", "Position Drafted"]
+        roster_table.field_names = ["Name", "Position Drafted", "Position", "Team"]
 
         for index, player in enumerate(self.current_roster().all_players):
-            roster_table.add_row([player.name, index + 1])
+            roster_table.add_row([player.name, index + 1, player.position, player.team])
 
         future_draft = self.simulate_to_next_round()
         next_best = sorted(future_draft.available_players,
@@ -293,7 +298,7 @@ class Draft:
             table.add_row(
                 [player.name, player.position, self.current_roster().net_additional_score(player),
                  player.overall_score(),
-                 player.overall_score() - next_best.overall_score()],
+                 player.overall_score() - next_best.overall_score(), player.team],
                 divider=last_player)
 
     def simulate_to_next_round(self):

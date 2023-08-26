@@ -8,7 +8,7 @@ import time
 class DataCrawler:
     ROOT_URL = ""
     ROOT = ""
-    PROJECTION_URL = ""
+    PROJECTION_URL = "https://fantasy.nfl.com/research/projections?offset=0&position=O&sort=projectedPts&statCategory=projectedStats&statSeason=2023&statType=weekProjectedStats&statWeek={stat_week}&count=1000"
 
     def crawl_project_stats(self) -> None:
         week_data = {}
@@ -66,7 +66,12 @@ class DataCrawler:
         players = tbody.find_all('tr')
         for player in players:
             player_name = player.find('a', {'class': 'playerName'}).text
-            player_position = player.find('em').text.split(" - ")[0]
+            position_and_team = player.find('em').text.split(" - ")
+            player_position = position_and_team[0]
+            if len(position_and_team) > 1:
+                player_team = position_and_team[1]
+            else:
+                player_team = "N/A"
             passing_yards = player.find('td', {'class': 'stat_5'}).text
             passing_tds = player.find('td', {'class': 'stat_6'}).text
             interceptions = player.find('td', {'class': 'stat_7'}).text
@@ -78,7 +83,7 @@ class DataCrawler:
             yield {"player_name": player_name, "passing_yards": passing_yards, "passing_tds": passing_tds,
                    "interceptions": interceptions, "rushing_yards": rushing_yards, "rushing_tds": rushing_tds,
                    "receiving_yards": receiving_yards, "receiving_tds": receiving_tds, "fumbles": fumbles,
-                   "player_position": player_position}
+                   "player_position": player_position, "player_team": player_team}
 
     @staticmethod
     def save_player_stats(player_stats: list[dict]):
